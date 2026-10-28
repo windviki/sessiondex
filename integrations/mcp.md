@@ -79,12 +79,18 @@ qoder mcp add sessiondex -- <SESSIONDEX> mcp
 
 ## Kimi Code
 
-`~/.kimi-code/config.toml`:
+`~/.kimi-code/mcp.json` (v2 engine; the legacy `[mcp_servers]` table in
+`config.toml` is ignored):
 
-```toml
-[mcp_servers.sessiondex]
-command = "<SESSIONDEX>"
-args = ["mcp"]
+```json
+{
+  "mcpServers": {
+    "sessiondex": {
+      "command": "<SESSIONDEX>",
+      "args": ["mcp"]
+    }
+  }
+}
 ```
 
 Validate afterwards with `kimi doctor`.

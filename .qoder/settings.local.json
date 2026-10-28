@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "sessiondex": {
+      "command": "/home/coder/sessiondex/.venv/bin/sessiondex",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

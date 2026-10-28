@@ -160,10 +160,20 @@ def build_mcp(cfg: Config | None = None) -> Any:
 
 def build_mcp_http(cfg: Config | None = None):
     """Return (mcp, starlette_app) for streamable-HTTP mounting, or (None, None)
-    when the installed MCP SDK does not support it."""
+    when the installed MCP SDK does not support it.
+
+    The sub-app is built with its internal route at "/" so that mounting it
+    under "/mcp" exposes exactly that path (mcp 2.x defaults the internal
+    route to "/mcp", which would collide into "/mcp/mcp").
+    """
     mcp = build_mcp(cfg)
     try:
-        http_app = mcp.streamable_http_app()
+        http_app = mcp.streamable_http_app(streamable_http_path="/")
+    except TypeError:  # older SDK without the path kwarg
+        try:
+            http_app = mcp.streamable_http_app()
+        except Exception:  # noqa: BLE001
+            return None, None
     except Exception:  # noqa: BLE001
         return None, None
     return mcp, http_app
