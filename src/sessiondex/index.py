@@ -2,15 +2,22 @@
 
 Design guarantees (the "index layer only" contract):
 
-* ``messages.text`` / ``reasoning`` hold at most :data:`TEXT_CAP` characters
-  of the original message — enough for snippets — never tool outputs.
-* Tool calls are stored as name + short input summary only.
-* Full content is always fetched from the original files via locators.
+* The FTS5 index is **contentless** (``content=''``): it stores only the
+  inverted index — full-text search covers *complete* message text,
+  reasoning and tool outputs, while no reconstructable document text is
+  kept on disk.
+* ``messages.text`` / ``reasoning`` hold only truncated excerpts for display
+  and snippet previews; tool calls store name + short input summary + a
+  short output preview. When a hit falls outside the stored excerpt, the
+  snippet is regenerated from the original storage via locators.
+* Deletion: contentless FTS rows cannot be deleted without their original
+  text, so re-parsed/removed messages leave orphan postings behind. Queries
+  always INNER JOIN ``messages`` on the FTS rowid, so orphans never surface;
+  their space is reclaimed by ``--full`` rebuilds. ``messages.id`` is
+  AUTOINCREMENT to guarantee rowids are never reused (a reused rowid would
+  attach stale postings to a new message).
 
-FTS5 setup: a standalone ``messages_fts`` table over pre-tokenized token
-streams (see :mod:`sessiondex.tokenize`); ``messages.id`` is the FTS rowid,
-so deletes are plain ``DELETE ... WHERE rowid = ?``. Storage caps live in
-:mod:`sessiondex.model` and can be tuned with SESSIONDEX_*_CAP env vars.
+Storage caps live in :mod:`sessiondex.model` (SESSIONDEX_*_CAP env vars).
 """
 from __future__ import annotations
 
@@ -22,14 +29,12 @@ from typing import Any
 
 import orjson
 
-from . import tokenize
-from .model import (
-    REASONING_CAP,
-    TEXT_CAP,
-    TOOL_INPUT_CAP,
-    MessageRecord,
-    SessionMeta,
-)
+from . import model, tokenize
+from .model import MessageRecord, SessionMeta
+
+#: bump on incompatible index-format changes; an older index is wiped on
+#: open (it is fully rebuildable from the agent storage in minutes)
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta(
@@ -61,7 +66,7 @@ CREATE TABLE IF NOT EXISTS sources(
   state TEXT NOT NULL DEFAULT '{}'
 );
 CREATE TABLE IF NOT EXISTS messages(
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   agent TEXT NOT NULL,
   session_rowid INTEGER NOT NULL,
   src TEXT NOT NULL,
@@ -73,14 +78,14 @@ CREATE TABLE IF NOT EXISTS messages(
   locator TEXT NOT NULL DEFAULT '{}',
   snippet TEXT NOT NULL DEFAULT '',
   text TEXT NOT NULL DEFAULT '',
-  reasoning TEXT NOT NULL DEFAULT '',
-  tools_text TEXT NOT NULL DEFAULT ''
+  reasoning TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_rowid);
 CREATE INDEX IF NOT EXISTS idx_messages_agent_ts ON messages(agent, ts_ms);
 CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts_ms);
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
-  text, reasoning, tools_text,
+  text, reasoning, tools, outputs,
+  content='', contentless_delete=1,
   tokenize='unicode61'
 );
 """
@@ -104,7 +109,30 @@ class Index:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.executescript(SCHEMA)
+        self.rebuilt_on_open = self._check_schema_version()
         self.conn.commit()
+
+    def _check_schema_version(self) -> bool:
+        """Wipe incompatible indexes; returns True if content was dropped."""
+        version = self.get_meta("schema_version", "0")
+        if version == str(SCHEMA_VERSION):
+            return False
+        had_content = (
+            self.conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] > 0
+        )
+        if version != "0" or had_content:
+            # an index written by an older sessiondex: not readable with the
+            # current schema — reset and let the next scan repopulate it
+            self.conn.executescript(
+                "DROP TABLE IF EXISTS messages_fts;"
+                "DROP TABLE IF EXISTS messages;"
+                "DROP TABLE IF EXISTS sources;"
+                "DROP TABLE IF EXISTS sessions;"
+                "DROP TABLE IF EXISTS meta;"
+            )
+            self.conn.executescript(SCHEMA)
+        self.set_meta("schema_version", str(SCHEMA_VERSION))
+        return had_content
 
     # -- meta --------------------------------------------------------------
 
@@ -207,18 +235,25 @@ class Index:
     # -- messages ----------------------------------------------------------
 
     def upsert_message(self, rec: MessageRecord, session_rowid: int) -> int | None:
+        """Index one message. Stored columns are capped excerpts; the FTS
+        feed covers the *complete* text/reasoning/tool outputs (contentless
+        — nothing reconstructable is stored)."""
         key = message_key(rec)
-        text = rec.text[:TEXT_CAP]
-        reasoning = rec.reasoning[:REASONING_CAP]
+        text = rec.text[: model.TEXT_CAP]
+        reasoning = rec.reasoning[: model.REASONING_CAP]
         tools = [
-            {"name": t.name, "input_summary": t.input_summary} for t in rec.tools
+            {
+                "name": t.name,
+                "input_summary": t.input_summary[: model.TOOL_INPUT_CAP],
+                "output_preview": t.output[: model.TOOL_OUTPUT_PREVIEW_CAP],
+            }
+            for t in rec.tools
         ]
         tools_text = " ".join(
-            f"{t.name} {t.input_summary}"[:TOOL_INPUT_CAP] for t in rec.tools
-        )[:800]
-        fts_text = tokenize.index_text(text)[: TEXT_CAP * 3]
-        fts_reasoning = tokenize.index_text(reasoning)[: REASONING_CAP * 3]
-        fts_tools = tokenize.index_text(tools_text)[:2000]
+            f"{t.name} {t.input_summary}"[: model.TOOL_INPUT_CAP * 2]
+            for t in rec.tools
+        )[:1200]
+        outputs_text = "\n".join(t.output for t in rec.tools if t.output)[:512_000]
         snippet = " ".join((text or reasoning).split())[:200]
 
         old = self.conn.execute(
@@ -226,19 +261,16 @@ class Index:
         ).fetchone()
         with self.conn:
             if old:
-                mid = int(old["id"])
-                self.conn.execute(
-                    "DELETE FROM messages_fts WHERE rowid=?", (mid,)
-                )
-                self.conn.execute("DELETE FROM messages WHERE id=?", (mid,))
-            else:
-                mid = None
+                # contentless FTS rows cannot be deleted without their
+                # original text: drop the messages row and leave an orphan
+                # posting (filtered by the INNER JOIN on every query)
+                self.conn.execute("DELETE FROM messages WHERE id=?", (old["id"],))
             cur = self.conn.execute(
                 """
                 INSERT INTO messages(agent, session_rowid, src, msg_key, role, ts_ms,
                                      subagent, tools, locator, snippet, text,
-                                     reasoning, tools_text)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                     reasoning)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     rec.agent,
@@ -253,28 +285,28 @@ class Index:
                     snippet,
                     text,
                     reasoning,
-                    tools_text,
                 ),
             )
             mid = int(cur.lastrowid)
             self.conn.execute(
-                "INSERT INTO messages_fts(rowid, text, reasoning, tools_text)"
-                " VALUES(?,?,?,?)",
-                (mid, fts_text, fts_reasoning, fts_tools),
+                "INSERT INTO messages_fts(rowid, text, reasoning, tools, outputs)"
+                " VALUES(?,?,?,?,?)",
+                (
+                    mid,
+                    tokenize.index_text(rec.text),
+                    tokenize.index_text(rec.reasoning),
+                    tokenize.index_text(tools_text)[:4000],
+                    tokenize.index_text(outputs_text),
+                ),
             )
         return mid
 
     def delete_messages_for_src(self, src: str) -> int:
-        rows = self.conn.execute(
-            "SELECT id FROM messages WHERE src=?", (src,)
-        ).fetchall()
+        """Remove all messages of one source file; FTS postings are orphaned
+        (see module docstring) and reclaimed on the next full rebuild."""
         with self.conn:
-            for row in rows:
-                self.conn.execute(
-                    "DELETE FROM messages_fts WHERE rowid=?", (row["id"],)
-                )
-            self.conn.execute("DELETE FROM messages WHERE src=?", (src,))
-        return len(rows)
+            cur = self.conn.execute("DELETE FROM messages WHERE src=?", (src,))
+        return cur.rowcount
 
     def get_message(self, msg_id: int) -> dict[str, Any] | None:
         row = self.conn.execute(
@@ -345,7 +377,7 @@ class Index:
 
     def rebuild(self) -> None:
         """Drop all index content (cheaper than row-by-row deletes on large
-        FTS tables; keeps the database file)."""
+        FTS tables; keeps the database file). Reclaims orphan postings."""
         with self.conn:
             self.conn.execute("DROP TABLE IF EXISTS messages_fts")
             self.conn.execute("DROP TABLE IF EXISTS messages")
@@ -353,3 +385,4 @@ class Index:
             self.conn.execute("DROP TABLE IF EXISTS sessions")
             self.conn.execute("DROP TABLE IF EXISTS meta")
             self.conn.executescript(SCHEMA)
+            self.set_meta("schema_version", str(SCHEMA_VERSION))

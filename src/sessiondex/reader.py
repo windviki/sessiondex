@@ -123,3 +123,66 @@ def read_raw(agent: str, locator: dict[str, Any]) -> dict[str, Any]:
     """Read the complete original record addressed by a search-result locator."""
     provider = provider_for(agent)
     return provider.read_raw(locator)
+
+
+_SKIP_KEYS = {"signature", "uuid", "parentUuid", "sessionId", "tool_use_id"}
+
+
+def _walk_strings(obj: Any, out: list[str], budget: int) -> None:
+    if budget[0] <= 0:
+        return
+    if isinstance(obj, str):
+        if len(obj) > 1 and not obj.startswith(("data:", "base64:")):
+            out.append(obj)
+            budget[0] -= len(obj)
+    elif isinstance(obj, dict):
+        for key, value in obj.items():
+            if key in _SKIP_KEYS:
+                continue
+            _walk_strings(value, out, budget)
+    elif isinstance(obj, (list, tuple)):
+        for item in obj:
+            _walk_strings(item, out, budget)
+
+
+def context_text(
+    agent: str, locator: dict[str, Any], *, max_chars: int = 200_000
+) -> str:
+    """Best-effort full searchable text of the original record addressed by
+    *locator* (the hit message plus, for JSONL agents, the records right
+    after it — where tool outputs live). Used to regenerate snippets for
+    hits that fall outside the stored excerpts."""
+    provider = provider_for(agent)
+    kind = locator.get("kind")
+    out: list[str] = []
+    budget = [max_chars]
+    if kind in ("jsonl", "jsonl_zst"):
+        import orjson
+
+        path = locator["path"]
+        start = int(locator.get("line", 0))
+        if kind == "jsonl":
+            with open(path, "rb") as fh:
+                for idx, raw in enumerate(fh, start=1):
+                    if idx < start:
+                        continue
+                    if idx > start + 80 or budget[0] <= 0:
+                        break
+                    try:
+                        _walk_strings(orjson.loads(raw), out, budget)
+                    except orjson.JSONDecodeError:
+                        continue
+        else:
+            from .provider.dsh import _decompress_lines
+
+            lines = _decompress_lines(path)
+            for idx in range(start - 1, min(start + 80, len(lines))):
+                if budget[0] <= 0:
+                    break
+                try:
+                    _walk_strings(orjson.loads(lines[idx]), out, budget)
+                except orjson.JSONDecodeError:
+                    continue
+    else:
+        _walk_strings(read_raw(agent, locator), out, budget)
+    return "\n".join(out)

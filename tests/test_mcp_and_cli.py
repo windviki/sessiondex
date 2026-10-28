@@ -118,7 +118,7 @@ def test_cli_scan_and_search(scanned, built, monkeypatch):
     r = runner.invoke(cli_app, ["show", "claude", sid, "--json"])
     assert r.exit_code == 0, r.output
     body = json.loads(r.stdout)
-    assert body["total"] == 4
+    assert body["total"] == 7
 
     r = runner.invoke(cli_app, ["status", "--json"])
     assert r.exit_code == 0

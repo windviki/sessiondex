@@ -206,17 +206,20 @@ class SqliteProvider(Provider):
             elif ptype == "reasoning" and isinstance(pdata.get("text"), str):
                 reasoning.append(pdata["text"])
             elif ptype == "tool":
+                from .. import model
+
                 state = pdata.get("state") or {}
                 call = ToolCall(
                     name=str(pdata.get("tool") or ""),
                     input_summary=summarize_input(state.get("input") if isinstance(state, dict) else None),
                 )
-                if not for_index and isinstance(state, dict):
+                if isinstance(state, dict):
                     out = state.get("output")
-                    if isinstance(out, str):
-                        call.result_preview = out[:500]
-                    elif out is not None:
-                        call.result_preview = str(out)[:500]
+                    out = out if isinstance(out, str) else ("" if out is None else str(out))
+                    if model.TOOL_OUTPUT_CAP:
+                        out = out[: model.TOOL_OUTPUT_CAP]
+                    call.output = out
+                    call.result_preview = out[:500]
                 tools.append(call)
 
         record = MessageRecord(

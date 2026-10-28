@@ -20,14 +20,21 @@ JSONL、SQLite……共六种）。想找「上周二那次对话」，只能手
 友好的全文索引**，并通过 CLI、REST API 和 MCP 工具暴露出来 —— 任何 agent 都
 能直接调用，而不必自己去扫目录。
 
-## 设计原则：只做索引层，不复制数据
+## 设计原则：全文检索，但不存储你的数据
 
-- 索引只存**截断后的消息正文**（默认 2 KB）、思考块摘录（1 KB）、工具名与
-  200 字符输入摘要 —— **绝不存工具输出**。
-- 完整内容永远通过每条消息的 locator **按需回读 agent 自己的原始文件**。
-- 索引体积通常为源数据的 5–15%（取决于 agent 产生的思考文本量；实测约 4 GB
-  历史索引后约 590 MB。可通过 `SESSIONDEX_TEXT_CAP` /
-  `SESSIONDEX_REASONING_CAP` 调整）。
+sessiondex 是**索引层，不是数据湖**：
+
+- FTS5 索引采用 **contentless 模式**（`content=''`）：磁盘上只有倒排索引。
+  检索覆盖 **100% 的消息正文、思考块和工具输出**，但不落任何可还原的
+  文本副本。
+- 存储行只保留截断摘录用于展示：正文 2 KB、思考 1 KB、工具名 + 200 字符
+  输入摘要 + 1 KB 输出预览。命中落在摘录之外时，snippet 会按 locator
+  **回读 agent 原始存储**动态重新生成。
+- 工具输出**默认全量入索引**（`SESSIONDEX_TOOL_OUTPUT_CAP` 控制单次调用
+  上限，默认 64 KB，`0` = 不限）。
+- 实测：约 4.3 GB 历史（15.7 万条消息）索引后约 890 MB —— 约为源数据的
+  20%，全文零副本。摘录上限可用 `SESSIONDEX_TEXT_CAP` /
+  `SESSIONDEX_REASONING_CAP` 调整。
 - Agent 存储一律**只读打开**（SQLite 用 `mode=ro`；WAL 异常时复制快照恢复，
   绝不写原库）。
 
@@ -92,9 +99,12 @@ sessiondex serve      # 可选：REST + MCP 服务 http://127.0.0.1:8765
 - **分词** —— ASCII 词小写化为 token；CJK 连续段切成字符二元组（bigram），
   因此 `启动`、`ch011 模块` 这类查询等效于子串匹配。索引与查询用同一分词器
   （FTS5 `unicode61` 作用于预分词流）。
+- **Contentless FTS** —— 倒排索引覆盖完整正文、思考与工具输出，不存文档
+  文本；排序用带列权重的 bm25（正文 > 工具调用 > 思考 > 工具输出）。
 - **增量扫描** —— JSONL 源按字节偏移水位续扫（size + mtime 判断变化）；zstd
   源变化时整文件重析（单文件很小）；SQLite 源按 `message`/`part` 的 rowid
-  水位增量，按稳定 message id 去重 upsert。`--full` 全量重建。
+  水位增量，按稳定 message id 去重 upsert。`--full` 全量重建（同时回收
+  contentless 孤儿 posting 占用的空间）。
 - **无常驻要求** —— 每个命令直接打开 SQLite 索引；`serve` 模式可选开启后台
   定时重扫线程。
 

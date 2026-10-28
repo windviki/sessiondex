@@ -1,4 +1,10 @@
-"""Normalized data model shared by all providers."""
+"""Normalized data model shared by all providers.
+
+Caps are read dynamically (module attributes) so tests can patch them; each
+defaults from an env var. They bound what is *stored* for display and how
+much of a tool output enters the index — full-text coverage itself is not
+capped (the FTS index sees complete message text and reasoning).
+"""
 from __future__ import annotations
 
 import os
@@ -16,13 +22,20 @@ def _cap_env(name: str, default: int) -> int:
 TEXT_CAP = _cap_env("SESSIONDEX_TEXT_CAP", 2048)
 REASONING_CAP = _cap_env("SESSIONDEX_REASONING_CAP", 1024)
 TOOL_INPUT_CAP = _cap_env("SESSIONDEX_TOOL_INPUT_CAP", 200)
+#: max chars of a single tool output fed into the index (0 = unlimited);
+#: guards against pathological blobs (base64 dumps) while covering real
+#: command/file outputs. Tool outputs are indexed by default.
+TOOL_OUTPUT_CAP = _cap_env("SESSIONDEX_TOOL_OUTPUT_CAP", 65536)
+#: stored per-call output preview in the messages table (display only)
+TOOL_OUTPUT_PREVIEW_CAP = 1000
 
 
 @dataclass
 class ToolCall:
     name: str
     input_summary: str = ""
-    result_preview: str = ""  # reader-only; never stored in the index
+    result_preview: str = ""  # short head of the output, for display
+    output: str = ""  # full (capped) output text, indexed but not stored
 
 
 @dataclass

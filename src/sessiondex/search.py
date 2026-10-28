@@ -166,11 +166,28 @@ def _msg_row(row: Any, query: str | None) -> dict:
     }
     text = d.get("text") or ""
     reasoning = d.get("reasoning") or ""
+    tools = orjson.loads(d.get("tools") or "[]")
+    locator = orjson.loads(d.get("locator") or "{}")
+
     snippet = make_snippet(text, query)
     if query and "<mark>" not in snippet:
         r_snip = make_snippet(reasoning, query)
         if r_snip:
             snippet = "[thinking] " + r_snip
+    if query and "<mark>" not in snippet:
+        previews = " ".join(
+            f"{t.get('name', '')} {t.get('input_summary', '')}"
+            f" {t.get('output_preview', '')}"
+            for t in tools
+        )
+        t_snip = make_snippet(previews, query)
+        if t_snip and "<mark>" in t_snip:
+            snippet = "[tools] " + t_snip
+    if query and "<mark>" not in snippet:
+        # the hit is beyond the stored excerpts — regenerate from source
+        deep = _deep_snippet(d.get("agent"), locator, query)
+        if deep:
+            snippet = deep
     return {
         "id": d["id"],
         "agent": d["agent"],
@@ -178,14 +195,28 @@ def _msg_row(row: Any, query: str | None) -> dict:
         "ts": _iso(d.get("ts_ms")),
         "ts_ms": d.get("ts_ms"),
         "subagent": bool(d.get("subagent")),
-        "tools": orjson.loads(d.get("tools") or "[]"),
-        "locator": orjson.loads(d.get("locator") or "{}"),
+        "tools": tools,
+        "locator": locator,
         "text": text,
         "reasoning": reasoning,
         "snippet": snippet,
         "score": round(d["score"], 3) if d.get("score") is not None else None,
         "session": session,
     }
+
+
+def _deep_snippet(agent: str | None, locator: dict, query: str) -> str:
+    """Snippet from the original storage for hits outside stored excerpts."""
+    if not agent or not locator:
+        return ""
+    from . import reader
+
+    try:
+        context = reader.context_text(agent, locator)
+    except Exception:  # noqa: BLE001 - snippet is best-effort
+        return ""
+    snip = make_snippet(context, query)
+    return f"[source] {snip}" if "<mark>" in snip else ""
 
 
 # -- public search API ----------------------------------------------------------
@@ -218,7 +249,13 @@ def search_messages(
     join += " JOIN sessions s ON s.id = m.session_rowid"
     cond = ("messages_fts MATCH ? AND " + where) if match else where
     mparams = ([match] if match else []) + params
-    order_sql = "bm25(messages_fts) ASC" if (match and order != "ts") else "m.ts_ms DESC"
+    # column weights: text > tool calls > reasoning > tool outputs
+    rank = (
+        "bm25(messages_fts, 1.0, 0.5, 0.8, 0.2)"
+        if match
+        else "m.ts_ms"
+    )
+    order_sql = f"{rank} ASC" if (match and order != "ts") else "m.ts_ms DESC"
     total = idx.conn.execute(
         f"SELECT COUNT(*) {join} WHERE {cond}", mparams
     ).fetchone()[0]
@@ -226,7 +263,7 @@ def search_messages(
         f"""
         SELECT m.*, s.session_id, s.title, s.cwd AS session_cwd,
                s.subagent AS session_sub
-               {', bm25(messages_fts) AS score' if match else ''}
+               {f', {rank} AS score' if match else ''}
         {join} WHERE {cond}
         ORDER BY {order_sql}
         LIMIT ? OFFSET ?

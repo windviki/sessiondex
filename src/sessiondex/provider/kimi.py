@@ -124,16 +124,21 @@ def _parse_events(
                 if target is not None:
                     target.tools.append(call)
                 last_call[str(event.get("toolCallId") or "")] = call
-            elif etype == "tool.result" and not for_index:
+            elif etype == "tool.result":
+                from .. import model
+
                 call = last_call.get(str(event.get("toolCallId") or ""))
                 result = event.get("result") or {}
-                preview = str(result.get("output") or "")[:500]
+                output = str(result.get("output") or "")
+                if model.TOOL_OUTPUT_CAP:
+                    output = output[: model.TOOL_OUTPUT_CAP]
                 if call is not None:
-                    call.result_preview = preview
+                    call.output = output
+                    call.result_preview = output[:500]
                 else:
                     target = last_assistant.get(agent_id)
-                    if target is not None and preview:
-                        target.tool_results.append({"preview": preview})
+                    if target is not None and output:
+                        target.tool_results.append({"preview": output[:500]})
     yield from flush()
 
 

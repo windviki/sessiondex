@@ -21,7 +21,9 @@ def test_read_session_messages_jsonl(idx, built):
     result = reader.session_messages(idx, "claude", built["claude"]["session_id"])
     assert result is not None
     roles = [m["role"] for m in result["messages"]]
-    assert roles == ["user", "assistant", "user", "assistant"]  # main + subagent
+    assert roles == [
+        "user", "assistant", "user", "user", "assistant", "user", "assistant",
+    ]  # main (incl. tool_result carriers) + subagent transcript
     # tool_result carrier kept in reader view with previews
     carrier = next(m for m in result["messages"] if m["tool_results"])
     assert carrier["tool_results"][0]["preview"] == "boot ok"
@@ -61,7 +63,7 @@ def test_read_raw_sqlite(idx, built):
 def test_read_raw_zstd(idx, built):
     hits = search_mod.search_messages(idx, "deploy", agents=["dsh"])
     raw = reader.read_raw("dsh", hits["items"][0]["locator"])
-    assert raw["type"] == "user/message"
+    assert raw["type"] in ("user/message", "assistant/message")
 
 
 def test_missing_session_returns_none(idx):

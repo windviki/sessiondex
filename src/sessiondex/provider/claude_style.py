@@ -26,20 +26,28 @@ def parse_claude_line(
     line_no: int,
     session: SessionMeta,
     for_index: bool,
-) -> MessageRecord | None:
+) -> tuple[MessageRecord | None, list[tuple[str, ToolCall]], list[tuple[str, str]]]:
+    """Parse one JSONL record.
+
+    Returns ``(record, tool_uses, tool_results)`` where *tool_uses* is a list
+    of ``(tool_use_id, call)`` from this record and *tool_results* a list of
+    ``(tool_use_id, output_text)``. The record may be None (records with no
+    indexable content, e.g. pure tool_result carriers in index mode) while
+    the tool lists are still populated so callers can attach outputs.
+    """
     try:
         rec = orjson.loads(raw)
     except orjson.JSONDecodeError:
-        return None
+        return None, [], []
     if not isinstance(rec, dict):
-        return None
+        return None, [], []
     rtype = rec.get("type")
     if rtype not in ("user", "assistant"):
-        return None
+        return None, [], []
 
     msg = rec.get("message") or {}
     if not isinstance(msg, dict):
-        return None
+        return None, [], []
     role = msg.get("role") or rtype
     content = msg.get("content")
 
@@ -47,6 +55,8 @@ def parse_claude_line(
     reasoning: list[str] = []
     tools: list[ToolCall] = []
     tool_results: list[dict[str, Any]] = []
+    uses: list[tuple[str, ToolCall]] = []
+    results: list[tuple[str, str]] = []
 
     if isinstance(content, str):
         texts.append(content)
@@ -62,25 +72,28 @@ def parse_claude_line(
                 if isinstance(block.get("thinking"), str):
                     reasoning.append(block["thinking"])
             elif btype == "tool_use":
-                tools.append(
-                    ToolCall(
-                        name=str(block.get("name") or ""),
-                        input_summary=summarize_input(block.get("input")),
-                    )
+                call = ToolCall(
+                    name=str(block.get("name") or ""),
+                    input_summary=summarize_input(block.get("input")),
                 )
-            elif btype == "tool_result" and not for_index:
+                tools.append(call)
+                uses.append((str(block.get("id") or ""), call))
+            elif btype == "tool_result":
                 preview = block.get("content")
                 if isinstance(preview, list):
                     preview = " ".join(
                         b.get("text", "") for b in preview if isinstance(b, dict)
                     )
-                tool_results.append(
-                    {
-                        "tool_use_id": block.get("tool_use_id"),
-                        "preview": str(preview or "")[:500],
-                        "is_error": bool(block.get("is_error")),
-                    }
-                )
+                text = str(preview or "")
+                results.append((str(block.get("tool_use_id") or ""), text))
+                if not for_index:
+                    tool_results.append(
+                        {
+                            "tool_use_id": block.get("tool_use_id"),
+                            "preview": text[:500],
+                            "is_error": bool(block.get("is_error")),
+                        }
+                    )
 
     record = MessageRecord(
         agent=agent,
@@ -96,8 +109,8 @@ def parse_claude_line(
         tool_results=tool_results,
     )
     if for_index and not record.text and not record.reasoning and not record.tools:
-        return None  # nothing searchable (e.g. a pure tool_result carrier)
-    return record
+        return None, uses, results  # carrier records still carry results
+    return record, uses, results
 
 
 class ClaudeStyleProvider(Provider):
@@ -157,11 +170,18 @@ class ClaudeStyleProvider(Provider):
         state: dict | None,
         emit: Callable[[MessageRecord], None],
     ) -> dict:
+        """Index mode: buffer the file so tool results (which arrive in
+        later ``user`` records) can be attached back to the assistant
+        message that issued the call, then emit each record once."""
         offset = int((state or {}).get("offset", 0))
         line_no = int((state or {}).get("line", 0))
         local = self._session_of(path)
         local.cwd, local.subagent = session.cwd, session.subagent or local.subagent
         local.first_ts = session.first_ts
+        pending: list[MessageRecord] = []
+        calls: dict[str, ToolCall] = {}
+        from .. import model
+
         with open(path, "rb") as fh:
             fh.seek(offset)
             for raw in fh:
@@ -169,7 +189,7 @@ class ClaudeStyleProvider(Provider):
                     break  # partially written trailing line; retry next scan
                 line_no += 1
                 offset += len(raw)
-                rec = parse_claude_line(
+                rec, uses, results = parse_claude_line(
                     raw,
                     agent=self.name,
                     path=path,
@@ -177,6 +197,15 @@ class ClaudeStyleProvider(Provider):
                     session=local,
                     for_index=True,
                 )
+                for use_id, call in uses:
+                    if use_id:
+                        calls[use_id] = call
+                for res_id, text in results:
+                    call = calls.get(res_id)
+                    if call is not None and text:
+                        call.output = text[: model.TOOL_OUTPUT_CAP] \
+                            if model.TOOL_OUTPUT_CAP else text
+                        call.result_preview = call.output[:500]
                 if rec is not None:
                     if rec.cwd and not session.cwd:
                         session.cwd = rec.cwd  # enrich session meta while parsing
@@ -184,7 +213,9 @@ class ClaudeStyleProvider(Provider):
                         session.first_ts = rec.ts_ms
                     if rec.ts_ms and rec.ts_ms > session.last_ts:
                         session.last_ts = rec.ts_ms
-                    emit(rec)
+                    pending.append(rec)
+        for rec in pending:
+            emit(rec)
         return {"offset": offset, "line": line_no}
 
     def iter_messages(
@@ -199,10 +230,11 @@ class ClaudeStyleProvider(Provider):
             except OSError:
                 continue
             line_no = 0
+            calls: dict[str, ToolCall] = {}
             with fh:
                 for raw in fh:
                     line_no += 1
-                    rec = parse_claude_line(
+                    rec, uses, results = parse_claude_line(
                         raw,
                         agent=self.name,
                         path=source,
@@ -210,6 +242,13 @@ class ClaudeStyleProvider(Provider):
                         session=local,
                         for_index=False,
                     )
+                    for use_id, call in uses:
+                        if use_id:
+                            calls[use_id] = call
+                    for res_id, text in results:
+                        call = calls.get(res_id)
+                        if call is not None and text:
+                            call.result_preview = text[:500]
                     if rec is None:
                         continue
                     if include_raw:

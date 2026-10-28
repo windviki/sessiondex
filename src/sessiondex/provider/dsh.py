@@ -100,16 +100,21 @@ def _parse_dsh_lines(
             msg = data.get("message") or {}
             role = msg.get("role")
             blocks = msg.get("content")
-        elif rtype == "tool/result" and not for_index:
+        elif rtype == "tool/result":
+            from .. import model
+
             msg = data.get("message") or {}
             call = last_call.get(str(msg.get("toolCallId") or ""))
-            preview = ""
+            output = ""
             for block in msg.get("content") or []:
                 if isinstance(block, dict) and isinstance(block.get("text"), str):
-                    preview = block["text"][:500]
+                    output = block["text"]
                     break
+            if model.TOOL_OUTPUT_CAP:
+                output = output[: model.TOOL_OUTPUT_CAP]
             if call is not None:
-                call.result_preview = preview
+                call.output = output
+                call.result_preview = output[:500]
             continue
         else:
             continue

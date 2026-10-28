@@ -70,7 +70,7 @@ def test_sessions_endpoints(client, built):
 
     r = client.get(f"/api/sessions/claude/{sid}/messages", params={"limit": 2})
     body = r.json()
-    assert body["total"] == 4 and body["returned"] == 2
+    assert body["total"] == 7 and body["returned"] == 2
 
     r = client.get(f"/api/sessions/claude/{sid}/messages",
                    params={"role": "user"})

@@ -42,14 +42,18 @@ def test_claude_parse(providers, built):
 
     out = []
     provider.scan_source(meta.sources[0], meta, None, out.append)
-    # tool_result carrier skipped for indexing
-    assert [m.role for m in out] == ["user", "assistant"]
+    # tool_result carriers are skipped as standalone messages
+    assert [m.role for m in out] == ["user", "assistant", "user", "assistant"]
     assert "ch011" in out[0].text
     assert out[0].cwd == "/home/user/proj"
     assert out[1].reasoning.startswith("先查看")
     assert out[1].tools[0].name == "Bash"
     assert "ch011.log" in out[1].tools[0].input_summary
     assert out[1].locator["line"] == 2
+    # tool output attached back to the issuing assistant message
+    grep_call = next(m for m in out if m.tools and m.tools[0].name == "Grep")
+    assert "OUTNEAR3c1d" in grep_call.tools[0].output
+    assert "OUTFAR9d31" in grep_call.tools[0].output
 
     sub_out = []
     provider.scan_source(meta.sources[1], meta, None, sub_out.append)

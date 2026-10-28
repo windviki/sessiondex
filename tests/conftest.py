@@ -54,6 +54,10 @@ def build_claude(root: Path) -> dict:
     sub_sid = "11111111-aaaa-4bbb-8ccc-000000000002"
     sub_agent_file = "agent-deadbeefdeadbeef.jsonl"
     main = root / "claude" / "projects" / "-home-user-proj" / f"{sid}.jsonl"
+    long_tail = "背景说明。" + "填充内容。" * 500 + "收尾：TAILMARKER7f3a 出现在消息末尾。"
+    tool_output = (
+        "OUTNEAR3c1d 起始输出\n" + "y" * 1500 + "\n深处的 OUTFAR9d31 标记\n" + "z" * 200
+    )
     _write_lines(
         main,
         [
@@ -95,6 +99,50 @@ def build_claude(root: Path) -> dict:
                     "role": "user",
                     "content": [
                         {"type": "tool_result", "tool_use_id": "call_01", "content": "boot ok"}
+                    ],
+                },
+            },
+            {
+                "type": "user",
+                "uuid": "u3",
+                "sessionId": sid,
+                "timestamp": "2026-10-20T10:05:00.000Z",
+                "cwd": "/home/user/proj",
+                "message": {"role": "user", "content": long_tail},
+            },
+            {
+                "type": "assistant",
+                "uuid": "a2",
+                "sessionId": sid,
+                "timestamp": "2026-10-20T10:05:05.000Z",
+                "cwd": "/home/user/proj",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "搜索输出标记"},
+                        {
+                            "type": "tool_use",
+                            "id": "call_t1",
+                            "name": "Grep",
+                            "input": {"pattern": "MARKER"},
+                        },
+                    ],
+                },
+            },
+            {
+                "type": "user",
+                "uuid": "u4",
+                "sessionId": sid,
+                "timestamp": "2026-10-20T10:05:06.000Z",
+                "cwd": "/home/user/proj",
+                "message": {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_t1",
+                            "content": tool_output,
+                        }
                     ],
                 },
             },

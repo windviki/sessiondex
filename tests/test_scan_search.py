@@ -228,5 +228,7 @@ def test_claude_session_meta_enriched(idx, built):
     row = idx.get_session("claude", built["claude"]["session_id"])
     assert row["cwd"] == "/home/user/proj"
     assert 0 < row["first_ts"] <= row["last_ts"]
-    assert row["msg_count"] == 3  # 2 indexable main records + subagent transcript
+    # u1, a1, long-tail user, grep assistant (carriers attach, not counted)
+    # plus the subagent transcript record
+    assert row["msg_count"] == 5
     assert row["title"].startswith("帮我优化")  # first user message as title

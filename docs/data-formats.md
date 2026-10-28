@@ -7,9 +7,14 @@ Normalization target:
 
 ```
 MessageRecord(agent, session_id, ts_ms(epoch ms), role(user|assistant),
-              text, reasoning, tools[{name, input_summary}],
+              text, reasoning, tools[{name, input_summary, output}],
               locator{kind,path|db,line|message_id}, subagent, cwd)
 ```
+
+Tool outputs (the `output` field, capped by `SESSIONDEX_TOOL_OUTPUT_CAP`,
+default 64 KB per call) are attached back to the assistant message that
+issued the call and enter the full-text index; only a short preview is
+stored for display.
 
 ## Claude Code — `~/.claude/projects/<sanitized-cwd>/<uuid>.jsonl`
 
