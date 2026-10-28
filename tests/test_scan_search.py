@@ -192,3 +192,41 @@ def test_full_rebuild_dedupes(cfg, idx):
     do_scan(idx, cfg=cfg, providers=build_providers(cfg), full=True)
     assert _q(idx, "ch011")["total"] == _q(idx, "ch011")["total"]
     assert _q(idx, "ch011")["total"] >= 3
+
+
+def test_sessions_keep_timestamps_without_messages(cfg, tmp_path):
+    """A session with no indexable messages must keep its discovered
+    timestamps (regression: refresh used to zero them out)."""
+    import orjson as _oj
+
+    from sessiondex.provider.kimi import KimiProvider
+
+    root = tmp_path / "agents2"
+    sess_dir = root / "kimi" / "sessions" / "wd_x_1" / "session_empty1"
+    (sess_dir / "agents" / "main").mkdir(parents=True)
+    (sess_dir / "state.json").write_text(_oj.dumps({
+        "id": "session_empty1", "cwd": "/home/user/empty",
+        "createdAt": 1700000000000, "updatedAt": 1700000600000,
+        "agents": {"main": {"type": "main"}},
+    }).decode())
+    # wire.jsonl with only a metadata line -> nothing indexable
+    (sess_dir / "agents" / "main" / "wire.jsonl").write_bytes(
+        _oj.dumps({"type": "metadata", "created_at": 1700000000000}) + b"\n"
+    )
+
+    index = Index(tmp_path / "empty.sqlite")
+    scan(index, cfg=cfg, providers={"kimi": KimiProvider(root / "kimi")})
+    row = index.get_session("kimi", "session_empty1")
+    assert row is not None
+    assert row["msg_count"] == 0
+    assert row["first_ts"] == 1700000000000
+    assert row["last_ts"] == 1700000600000
+    index.close()
+
+
+def test_claude_session_meta_enriched(idx, built):
+    row = idx.get_session("claude", built["claude"]["session_id"])
+    assert row["cwd"] == "/home/user/proj"
+    assert 0 < row["first_ts"] <= row["last_ts"]
+    assert row["msg_count"] == 3  # 2 indexable main records + subagent transcript
+    assert row["title"].startswith("帮我优化")  # first user message as title

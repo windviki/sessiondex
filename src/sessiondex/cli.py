@@ -212,7 +212,9 @@ def status(as_json: bool = typer.Option(False, "--json")) -> None:
     st["last_scan"] = time.strftime(
         "%Y-%m-%d %H:%M:%S", time.localtime(st["last_scan"] / 1000)
     ) if st["last_scan"] else None
+    agents = search_mod.list_agents(idx)
     if as_json:
+        st["agents"] = agents
         console.print_json(json.dumps(st, ensure_ascii=False, default=str))
         return
     table = Table(title="sessiondex index")
@@ -220,7 +222,7 @@ def status(as_json: bool = typer.Option(False, "--json")) -> None:
     table.add_column("sessions", justify="right")
     table.add_column("messages", justify="right")
     table.add_column("last activity", style="dim")
-    for a in st["agents"]:
+    for a in agents:
         table.add_row(a["agent"], str(a["sessions"]), str(a["messages"]),
                       (a["last_activity"] or "")[:19])
     console.print(table)

@@ -159,6 +159,12 @@ class Index:
         ).fetchone()
         return dict(row) if row else None
 
+    def get_session_row(self, rowid: int) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            "SELECT * FROM sessions WHERE id=?", (rowid,)
+        ).fetchone()
+        return dict(row) if row else None
+
     def refresh_session_stats(self, session_rowid: int) -> None:
         row = self.conn.execute(
             """
@@ -168,10 +174,17 @@ class Index:
             """,
             (session_rowid,),
         ).fetchone()
-        self.conn.execute(
-            "UPDATE sessions SET msg_count=?, first_ts=?, last_ts=? WHERE id=?",
-            (row["n"], row["first_ts"], row["last_ts"], session_rowid),
-        )
+        if row["n"]:
+            self.conn.execute(
+                "UPDATE sessions SET msg_count=?, first_ts=?, last_ts=? WHERE id=?",
+                (row["n"], row["first_ts"], row["last_ts"], session_rowid),
+            )
+        else:
+            # no indexable messages: keep discovered timestamps (e.g. kimi
+            # state.json / sqlite session rows), never zero them out
+            self.conn.execute(
+                "UPDATE sessions SET msg_count=0 WHERE id=?", (session_rowid,)
+            )
 
     def fill_session_title(self, session_rowid: int) -> None:
         """If a session has no title, use its first user message text."""
@@ -331,10 +344,12 @@ class Index:
         self.conn.close()
 
     def rebuild(self) -> None:
-        """Drop all index content (keeps the database file)."""
+        """Drop all index content (cheaper than row-by-row deletes on large
+        FTS tables; keeps the database file)."""
         with self.conn:
-            self.conn.execute("DELETE FROM messages_fts")
-            self.conn.execute("DELETE FROM messages")
-            self.conn.execute("DELETE FROM sessions")
-            self.conn.execute("DELETE FROM sources")
-            self.conn.execute("DELETE FROM meta WHERE key='last_scan'")
+            self.conn.execute("DROP TABLE IF EXISTS messages_fts")
+            self.conn.execute("DROP TABLE IF EXISTS messages")
+            self.conn.execute("DROP TABLE IF EXISTS sources")
+            self.conn.execute("DROP TABLE IF EXISTS sessions")
+            self.conn.execute("DROP TABLE IF EXISTS meta")
+            self.conn.executescript(SCHEMA)

@@ -182,6 +182,8 @@ class ClaudeStyleProvider(Provider):
                         session.cwd = rec.cwd  # enrich session meta while parsing
                     if rec.ts_ms and not session.first_ts:
                         session.first_ts = rec.ts_ms
+                    if rec.ts_ms and rec.ts_ms > session.last_ts:
+                        session.last_ts = rec.ts_ms
                     emit(rec)
         return {"offset": offset, "line": line_no}
 

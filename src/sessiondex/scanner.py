@@ -94,8 +94,12 @@ def _scan_provider(
         if touched:
             # sessions meta may have been enriched during parsing (e.g. dsh cwd)
             idx.upsert_session(meta)
-            idx.refresh_session_stats(srow)
-            idx.fill_session_title(srow)
+        else:
+            row = idx.get_session_row(srow)
+            if row and row["msg_count"] == 0 and row["last_ts"] == 0 and row["first_ts"] == 0:
+                idx.upsert_session(meta)  # repair rows left empty by past errors
+        idx.refresh_session_stats(srow)
+        idx.fill_session_title(srow)
     return stat
 
 
