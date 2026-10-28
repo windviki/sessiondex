@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "sessiondex": {
+      "type": "stdio",
+      "command": "<SESSIONDEX>",
+      "args": ["mcp"]
+    }
+  }
+}
