@@ -92,9 +92,12 @@ sessiondex serve      # 可选：REST + MCP 服务 http://127.0.0.1:8765
   `/docs` 有交互式文档。端点见 [docs/api.md](docs/api.md)。
 - **MCP server** —— stdio（`sessiondex mcp`，零常驻）或 streamable-HTTP
   （`serve` 时挂载在 `/mcp`）。六个 agent 的注册片段见
-  [integrations/mcp.md](integrations/mcp.md)；通用 skill 见
-  [integrations/skills/search-sessions/SKILL.md](integrations/skills/search-sessions/SKILL.md)，
-  装进任何支持 skill 的 agent 即可让它主动调用。
+  [integrations/mcp.md](integrations/mcp.md)。
+- **Agent skill** —— 自然语言→参数映射指南
+  （[integrations/skills/search-sessions/SKILL.md](integrations/skills/search-sessions/SKILL.md)），
+  可装进全部六个 agent 的 skill 目录（zcode / claude / kimi / opencode /
+  dsh / qoder，安装矩阵见 [integrations/skills.md](integrations/skills.md)），
+  装好后 agent 会主动调用而不是自己扫目录。
 
 ## 索引原理
 

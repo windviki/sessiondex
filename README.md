@@ -102,8 +102,12 @@ original record.
   serving). Tools: `search_sessions`, `list_sessions`,
   `get_session_messages`, `list_agents`, `list_tools`, `refresh_index`.
   Registration snippets for all six agents live in
-  [integrations/mcp.md](integrations/mcp.md); a drop-in agent skill at
-  [integrations/skills/search-sessions/SKILL.md](integrations/skills/search-sessions/SKILL.md).
+  [integrations/mcp.md](integrations/mcp.md).
+- **Agent skill** — a natural-language → parameter mapping guide
+  ([integrations/skills/search-sessions/SKILL.md](integrations/skills/search-sessions/SKILL.md))
+  installable into every agent's skill directory (zcode, claude, kimi,
+  opencode, dsh, qoder — matrix in
+  [integrations/skills.md](integrations/skills.md)).
 
 ## How the index works
 

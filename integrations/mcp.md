@@ -97,10 +97,10 @@ Validate afterwards with `kimi doctor`.
 
 ## dsh (DeepSeek CLI)
 
-dsh has no MCP-server config today — use the skill/CLI integration instead:
-copy `integrations/skills/search-sessions/SKILL.md` into dsh's instructions
-directory (or paste it into your dsh profile/system prompt) so the agent
-calls `sessiondex search --json` directly.
+dsh has no MCP-server config today — use the skill integration instead:
+install `integrations/skills/search-sessions/SKILL.md` into
+`~/.dsh/skills/` and/or `~/.agents/skills/` (both are scanned). See
+[skills.md](skills.md) for the full per-agent install matrix.
 
 ## HTTP mode (optional, all agents)
 
