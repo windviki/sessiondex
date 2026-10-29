@@ -94,6 +94,9 @@ def search(
     session: Optional[str] = typer.Option(None, "--session", help="session id"),
     subagent: Optional[bool] = typer.Option(None, "--subagent/--main-only"),
     order: str = typer.Option("bm25", "--order", help="bm25 | ts"),
+    prefer: Optional[str] = typer.Option(
+        None, "--prefer", "-p", help="rank these roles first (user|assistant), no filtering"
+    ),
     limit: int = typer.Option(50, "--limit", "-l"),
     offset: int = typer.Option(0, "--offset"),
     as_json: bool = typer.Option(False, "--json", help="machine-readable output"),
@@ -108,7 +111,9 @@ def search(
         ts_from=ts_from, ts_to=ts_to,
         tools=list(tool) if tool else None,
         cwd=cwd, session_id=session, subagent=subagent,
-        order=order, limit=limit, offset=offset,
+        order=order,
+        prefer=[p for p in (prefer or "").split(",") if p] or None,
+        limit=limit, offset=offset,
     )
     if as_json:
         console.print_json(json.dumps(result, ensure_ascii=False))
@@ -138,6 +143,9 @@ def sessions_cmd(
     date_to: Optional[str] = typer.Option(None, "--to"),
     cwd: Optional[str] = typer.Option(None, "--cwd"),
     subagent: Optional[bool] = typer.Option(None, "--subagent/--main-only"),
+    prefer: Optional[str] = typer.Option(
+        None, "--prefer", "-p", help="rank these roles first (user|assistant)"
+    ),
     limit: int = typer.Option(30, "--limit", "-l"),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
@@ -146,7 +154,9 @@ def sessions_cmd(
     ts_from, ts_to = _parse_dates(date_from, date_to)
     result = search_mod.search_sessions(
         idx, q, agents=list(agent) if agent else None,
-        ts_from=ts_from, ts_to=ts_to, cwd=cwd, subagent=subagent, limit=limit,
+        ts_from=ts_from, ts_to=ts_to, cwd=cwd, subagent=subagent,
+        prefer=[p for p in (prefer or "").split(",") if p] or None,
+        limit=limit,
     )
     if as_json:
         console.print_json(json.dumps(result, ensure_ascii=False))

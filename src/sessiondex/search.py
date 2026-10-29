@@ -235,9 +235,17 @@ def search_messages(
     session_id: str | None = None,
     subagent: bool | None = None,
     order: str = "bm25",
+    prefer: list[str] | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> dict:
+    """Message-level search.
+
+    ``order``: ``bm25`` (relevance, default with a query) or ``ts`` (newest
+    first). ``prefer`` ("user"/"assistant") does NOT filter — it moves the
+    preferred roles to the top of the result list ("search everything, but
+    rank these first").
+    """
     f = Filters(agents, roles, ts_from, ts_to, tools, cwd, session_id, subagent)
     where, params = f.sql()
     match = tokenize.fts_query(q) if q and q.strip() else None
@@ -255,7 +263,15 @@ def search_messages(
         if match
         else "m.ts_ms"
     )
-    order_sql = f"{rank} ASC" if (match and order != "ts") else "m.ts_ms DESC"
+    prefer_clause = ""
+    if prefer:
+        wanted = [p.lower() for p in prefer if p.lower() in ("user", "assistant")]
+        if wanted:
+            cases = " ".join(f"WHEN m.role='{r}' THEN 0" for r in wanted)
+            prefer_clause = f"CASE {cases} ELSE 1 END ASC, "
+    order_sql = prefer_clause + (
+        f"{rank} ASC" if (match and order != "ts") else "m.ts_ms DESC"
+    )
     total = idx.conn.execute(
         f"SELECT COUNT(*) {join} WHERE {cond}", mparams
     ).fetchone()[0]
@@ -283,6 +299,7 @@ def search_sessions(
     cwd: str | None = None,
     session_id: str | None = None,
     subagent: bool | None = None,
+    prefer: list[str] | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> dict:
@@ -291,12 +308,14 @@ def search_sessions(
 
     Implemented on top of :func:`search_messages` (FTS5's bm25 cannot be
     aggregated in one statement); up to 2000 matching messages are grouped.
+    ``prefer`` is forwarded, so sessions matching the preferred roles rank
+    first.
     """
     msg_result = search_messages(
         idx, q,
         agents=agents, ts_from=ts_from, ts_to=ts_to, cwd=cwd,
         session_id=session_id, subagent=subagent,
-        order="bm25" if q else "ts", limit=2000,
+        order="bm25" if q else "ts", prefer=prefer, limit=2000,
     )
     groups: dict[tuple[str, str], dict] = {}
     for item in msg_result["items"]:

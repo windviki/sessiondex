@@ -47,13 +47,14 @@ Message-level search.
 |---|---|---|
 | `q` | string | keywords, CJK ok, ANDed; omit for pure filtering |
 | `agent` | csv | claude, zcode, kimi, dsh, qoder, opencode |
-| `role` | enum | `user` \| `assistant` |
+| `role` | enum | `user` \| `assistant` — **filters out** the other role |
 | `date_from` / `date_to` | date | see conventions |
 | `tool` | csv | tool names, e.g. `Bash,Read` |
 | `cwd` | glob | session working directory |
 | `session` | string | exact session id |
 | `subagent` | bool | include/exclude subagent messages |
-| `order` | enum | `bm25` (default with `q`) \| `ts` |
+| `order` | enum | `bm25` (default with `q`) \| `ts` (newest first) |
+| `prefer` | csv | `user` / `assistant` — **no filtering**; ranks the preferred role's hits first ("search everything, but these first") |
 | `limit` / `offset` | int | limit ≤ 500 |
 
 Response:

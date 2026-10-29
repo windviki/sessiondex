@@ -75,12 +75,14 @@ Python ≥ 3.10 with a SQLite build that includes FTS5 (standard on 3.11+).
 |---|---|---|
 | keywords (CJK ok, AND) | positional `q` | `q` |
 | agent kind | `--agent zcode` | `agent=zcode,claude` |
-| role | `--role user\|assistant` | `role=user` |
+| role (filters) | `--role user\|assistant` | `role=user` |
+| role (boosts, no filtering) | `--prefer user` | `prefer=user` |
 | date | `--from today --to yesterday` | `date_from=today&date_to=-7d` |
 | tool type | `--tool Bash` | `tool=Bash,Read` |
 | working dir | `--cwd "/src/project*"` | `cwd=/src/project*` |
 | exact session | `--session <id>` | `session=<id>` |
 | subagent only / main only | `--subagent / --main-only` | `subagent=true/false` |
+| order | `--order bm25\|ts` | `order=ts` |
 
 Date values accept `today`, `yesterday`, `-7d`, `-2w`, `YYYY-MM-DD` and ISO
 datetimes, interpreted in your local timezone. Search hits return snippets

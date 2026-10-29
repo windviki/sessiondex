@@ -130,6 +130,10 @@ def create_app(cfg: Config | None = None, start_background_scan: bool = False) -
         session: Optional[str] = None,
         subagent: Optional[bool] = None,
         order: str = Query("bm25", pattern="^(bm25|ts)$"),
+        prefer: Optional[str] = Query(
+            None,
+            description="rank these roles first without filtering: user, assistant",
+        ),
         limit: int = Query(50, ge=1, le=500),
         offset: int = Query(0, ge=0),
     ) -> dict:
@@ -142,7 +146,9 @@ def create_app(cfg: Config | None = None, start_background_scan: bool = False) -
                 ts_to=_parse_date_or_422(date_to, end=True),
                 tools=[t for t in (tool or "").split(",") if t] or None,
                 cwd=cwd, session_id=session, subagent=subagent,
-                order=order, limit=limit, offset=offset,
+                order=order,
+                prefer=[p for p in (prefer or "").split(",") if p] or None,
+                limit=limit, offset=offset,
             )
 
     @app.get("/api/sessions")
@@ -154,6 +160,7 @@ def create_app(cfg: Config | None = None, start_background_scan: bool = False) -
         cwd: Optional[str] = None,
         session: Optional[str] = None,
         subagent: Optional[bool] = None,
+        prefer: Optional[str] = Query(None, description="user or assistant"),
         limit: int = Query(50, ge=1, le=500),
         offset: int = Query(0, ge=0),
     ) -> dict:
@@ -164,6 +171,7 @@ def create_app(cfg: Config | None = None, start_background_scan: bool = False) -
                 ts_from=_parse_date_or_422(date_from),
                 ts_to=_parse_date_or_422(date_to, end=True),
                 cwd=cwd, session_id=session, subagent=subagent,
+                prefer=[p for p in (prefer or "").split(",") if p] or None,
                 limit=limit, offset=offset,
             )
 

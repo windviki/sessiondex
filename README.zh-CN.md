@@ -71,12 +71,14 @@ sessiondex serve      # 可选：REST + MCP 服务 http://127.0.0.1:8765
 |---|---|---|
 | 关键词（支持中文，多词 AND） | 位置参数 | `q` |
 | agent 种类 | `--agent zcode` | `agent=zcode,claude` |
-| 用户消息 / agent 消息 | `--role user\|assistant` | `role=user` |
+| 用户/agent 消息（过滤） | `--role user\|assistant` | `role=user` |
+| 某类消息优先（不过滤，排前面） | `--prefer user` | `prefer=user` |
 | 日期 | `--from today --to yesterday` | `date_from=today&date_to=-7d` |
 | 工具调用类型 | `--tool Bash` | `tool=Bash,Read` |
 | 会话工作目录 | `--cwd "/src/project*"` | `cwd=/src/project*` |
 | 精确会话 | `--session <id>` | `session=<id>` |
 | 仅子会话 / 仅主会话 | `--subagent / --main-only` | `subagent=true/false` |
+| 排序 | `--order bm25\|ts` | `order=ts` |
 
 日期支持 `today`、`yesterday`、`-7d`、`-2w`、`YYYY-MM-DD` 和 ISO 时间，
 按本地时区解释。命中结果带 `<mark>` 高亮 snippet、session id 和回读原文用

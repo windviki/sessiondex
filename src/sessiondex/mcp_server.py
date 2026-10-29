@@ -58,18 +58,23 @@ def build_mcp(cfg: Config | None = None) -> Any:
         cwd: Optional[str] = None,
         session_id: Optional[str] = None,
         subagent: Optional[bool] = None,
+        order: Optional[str] = None,
+        prefer: Optional[str] = None,
         limit: int = 20,
     ) -> str:
         """Search indexed messages across local AI-agent session histories.
 
         q: keywords (CJK supported), multiple terms ANDed; empty = filter only.
         agent: comma-separated names: claude, zcode, kimi, dsh, qoder, opencode.
-        role: "user" or "assistant".
+        role: "user" or "assistant" (filters OUT the other role).
         date_from/date_to: "today", "yesterday", "-7d", "YYYY-MM-DD" or ISO datetime.
         tool: comma-separated tool names (e.g. Bash, Read, Edit).
         cwd: session working directory glob/prefix.
         session_id: exact session id from a previous result.
         subagent: include/exclude subagent messages.
+        order: "bm25" (relevance, default with q) or "ts" (newest first).
+        prefer: "user" or "assistant" — does NOT filter; ranks the preferred
+            role's matches at the top ("search everything, but these first").
 
         Returns matched messages with snippets plus session metadata; then use
         get_session_messages with session_id (and around_message_id) for context.
@@ -84,6 +89,8 @@ def build_mcp(cfg: Config | None = None) -> Any:
                 ts_from=ts_from, ts_to=ts_to,
                 tools=[t for t in (tool or "").split(",") if t] or None,
                 cwd=cwd, session_id=session_id, subagent=subagent,
+                order=order or "bm25",
+                prefer=[p for p in (prefer or "").split(",") if p] or None,
                 limit=max(1, min(limit, 100)),
             )
         except ValueError as exc:
@@ -98,10 +105,12 @@ def build_mcp(cfg: Config | None = None) -> Any:
         date_to: Optional[str] = None,
         cwd: Optional[str] = None,
         subagent: Optional[bool] = None,
+        prefer: Optional[str] = None,
         limit: int = 20,
     ) -> str:
         """List sessions (one row per conversation) matching filters; q matches
-        any message full-text."""
+        any message full-text. prefer: "user"/"assistant" ranks sessions whose
+        preferred-role messages matched first (no filtering)."""
         idx = _idx()
         ts_from, ts_to = _dates(date_from, date_to)
         try:
@@ -109,6 +118,7 @@ def build_mcp(cfg: Config | None = None) -> Any:
                 idx, q,
                 agents=[a for a in (agent or "").split(",") if a] or None,
                 ts_from=ts_from, ts_to=ts_to, cwd=cwd, subagent=subagent,
+                prefer=[p for p in (prefer or "").split(",") if p] or None,
                 limit=max(1, min(limit, 100)),
             )
         except ValueError as exc:

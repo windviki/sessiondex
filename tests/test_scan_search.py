@@ -135,6 +135,21 @@ def test_order_ts(idx):
     assert ts_list == sorted(ts_list, reverse=True)
 
 
+def test_prefer_ranks_without_filtering(idx):
+    """prefer=user boosts user-role hits to the top but keeps all results."""
+    plain = _q(idx, "ch011")
+    boosted = _q(idx, "ch011", prefer=["user"])
+    assert boosted["total"] == plain["total"]
+    roles = [h["role"] for h in boosted["items"]]
+    user_count = roles.count("user")
+    assert user_count >= 1
+    assert all(r == "user" for r in roles[:user_count])  # users first
+    assert "assistant" in roles  # …but assistants still present
+    # without prefer, first hit need not be user
+    assert [h["role"] for h in _q(idx, "ch011", prefer=["assistant"])["items"]][0] \
+        == "assistant"
+
+
 def test_sessions_level_search(idx):
     result = search_mod.search_sessions(idx, "ch011")
     assert result["total"] >= 3
